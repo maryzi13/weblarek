@@ -1,7 +1,7 @@
 import { IBuyer, TPayment, TBuyerErrors } from '../../types';
 
 export class Buyer {
-  private payment: TPayment = 'card';
+  private payment: TPayment | '' = '';
   private email: string = '';
   private phone: string = '';
   private address: string = '';
@@ -23,7 +23,7 @@ export class Buyer {
   }
 
   clear(): void {
-    this.payment = 'card';
+    this.payment = '';
     this.email = '';
     this.phone = '';
     this.address = '';
@@ -31,6 +31,10 @@ export class Buyer {
 
   validate(): TBuyerErrors {
     const errors: TBuyerErrors = {};
+
+    if (!this.payment) {
+      errors.payment = 'Выберите способ оплаты';
+    }
 
     if (!this.email.trim()) {
       errors.email = 'Укажите email';

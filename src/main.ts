@@ -50,30 +50,42 @@ console.log(basketModel.getItems());
 
 // Buyer
 
-buyerModel.setData({
-  payment: 'card',
-  email: 'test@mail.com',
-  phone: '+79991234567',
-  address: 'Москва'
-});
-console.log(buyerModel.getData());
+console.log('Пустая модель:', buyerModel.getData());
+console.log('Ошибки:', buyerModel.validate());
 
-console.log(buyerModel.validate());
+buyerModel.setData({ email: 'test@mail.com' });
+console.log('После email:', buyerModel.getData());
+console.log('Ошибки:', buyerModel.validate());
+
+buyerModel.setData({ phone: '+79991234567' });
+console.log('После phone:', buyerModel.getData());
+console.log('Ошибки:', buyerModel.validate());
+
+buyerModel.setData({ address: 'Москва' });
+console.log('После address:', buyerModel.getData());
+console.log('Ошибки:', buyerModel.validate());
+
+buyerModel.setData({ payment: 'card' });
+console.log('После payment:', buyerModel.getData());
+console.log('Ошибки:', buyerModel.validate());
 
 buyerModel.clear();
-console.log(buyerModel.getData());
-
-console.log(buyerModel.validate());
-
+console.log('После очистки:', buyerModel.getData());
+console.log('Ошибки:', buyerModel.validate());
 
 // Api
 const apiInstance = new Api(API_URL);
 const webLarekApi = new WebLarekApi(apiInstance);
 
 (async () => {
-  const serverProducts = await webLarekApi.getProducts();
-  console.log(serverProducts);
+  try {
+    const serverProducts = await webLarekApi.getProducts();
+    console.log('Товары с сервера:', serverProducts);
 
-  productsModel.setItems(serverProducts);
-  console.log(productsModel.getItems());
+    productsModel.setItems(serverProducts);
+    console.log(productsModel.getItems());
+
+  } catch (error) {
+    console.error('Ошибка при получении товаров:', error);
+  }
 })();
