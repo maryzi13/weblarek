@@ -1,91 +1,242 @@
 import './scss/styles.scss';
 
+import { API_URL, CDN_URL } from './utils/constants';
+import { cloneTemplate } from './utils/utils';
+
+import { EventEmitter } from './components/base/Events';
 import { Api } from './components/base/Api';
-import { API_URL } from './utils/constants';
+
 import { WebLarekApi } from './components/services/WebLarekApi';
+
 import { Products } from './components/models/products';
-import { Basket } from './components/models/basket';
+import { Basket as BasketModel } from './components/models/basket';
 import { Buyer } from './components/models/buyer';
-import { apiProducts } from './utils/data'; 
 
-const productsModel = new Products();
-const basketModel = new Basket();
-const buyerModel = new Buyer();
+import { Gallery } from './components/views/Card/Gallery';
+import { CatalogCard } from './components/views/Card/CardCatalog';
+import { PreviewCard } from './components/views/Card/PreviewCard';
+import { BasketCard } from './components/views/Card/BasketCard';
 
-// Products
-productsModel.setItems(apiProducts.items);
-console.log(productsModel.getItems());
+import { Basket } from './components/views/Basket';
+import { Header } from './components/views/Header';
+import { Modal } from './components/views/Modal';
+import { OrderForm } from './components/views/Forms/OrderForm';
+import { ContactsForm } from './components/views/Forms/ContactsForm';
+import { Success } from './components/views/Success';
 
-const firstProduct = productsModel.getItem(apiProducts.items[0].id);
-console.log(firstProduct);
+import { IProduct, IOrderRequest } from './types';
 
-if (firstProduct) {
-  productsModel.setPreview(firstProduct);
-}
-console.log(productsModel.getPreview());
+const events = new EventEmitter();
 
+const api = new Api(API_URL);
+const weblarekApi = new WebLarekApi(api);
 
-// Basket
-if (firstProduct) {
-  basketModel.addItem(firstProduct);
-}
-console.log(basketModel.getItems());
+const productsModel = new Products(events);
+const basketModel = new BasketModel(events);
+const buyerModel = new Buyer(events);
 
-if (firstProduct) {
-  console.log(basketModel.hasItem(firstProduct.id));
-}
+const header = new Header(
+  events,
+  document.querySelector('.header') as HTMLElement
+);
 
-console.log(basketModel.getCount());
+const gallery = new Gallery(
+  document.querySelector('.page') as HTMLElement
+);
 
-console.log(basketModel.getTotalPrice());
+const modal = new Modal(
+  document.getElementById('modal-container') as HTMLElement,
+  events
+);
 
-if (firstProduct) {
-  basketModel.removeItem(firstProduct);
-}
-console.log(basketModel.getItems());
+const basketView = new Basket(
+  cloneTemplate('#basket'),
+  events
+);
 
-basketModel.clear();
-console.log(basketModel.getItems());
+const orderForm = new OrderForm(
+  cloneTemplate('#order') as HTMLFormElement,
+  events
+);
 
+const contactsForm = new ContactsForm(
+  cloneTemplate('#contacts') as HTMLFormElement,
+  events
+);
 
-// Buyer
+events.on('products:changed', () => {
+  const items = productsModel.getItems();
 
-console.log('Пустая модель:', buyerModel.getData());
-console.log('Ошибки:', buyerModel.validate());
+  const cards = items.map((item) => {
+    const card = new CatalogCard(
+      cloneTemplate('#card-catalog'),
+      events
+    );
 
-buyerModel.setData({ email: 'test@mail.com' });
-console.log('После email:', buyerModel.getData());
-console.log('Ошибки:', buyerModel.validate());
+    return card.render({
+      ...item,
+      image: CDN_URL + item.image
+    });
+  });
 
-buyerModel.setData({ phone: '+79991234567' });
-console.log('После phone:', buyerModel.getData());
-console.log('Ошибки:', buyerModel.validate());
+  gallery.render({ catalog: cards });
+});
 
-buyerModel.setData({ address: 'Москва' });
-console.log('После address:', buyerModel.getData());
-console.log('Ошибки:', buyerModel.validate());
+events.on('preview:changed', (item: IProduct) => {
+  const card = new PreviewCard(
+    cloneTemplate('#card-preview'),
+    events
+  );
 
-buyerModel.setData({ payment: 'card' });
-console.log('После payment:', buyerModel.getData());
-console.log('Ошибки:', buyerModel.validate());
+  modal.render({
+    content: card.render({
+      ...item,
+      image: CDN_URL + item.image,
+      inBasket: basketModel.hasItem(item.id)
+    })
+  });
+});
 
-buyerModel.clear();
-console.log('После очистки:', buyerModel.getData());
-console.log('Ошибки:', buyerModel.validate());
+events.on('basket:changed', () => {
+  const items = basketModel.getItems();
 
-// Api
-const apiInstance = new Api(API_URL);
-const webLarekApi = new WebLarekApi(apiInstance);
+  header.render({
+    counter: basketModel.getCount()
+  });
 
-(async () => {
-  try {
-    const serverProducts = await webLarekApi.getProducts();
-    console.log('Товары с сервера:', serverProducts);
+  const cards = items.map((item, index) => {
+    const card = new BasketCard(
+      cloneTemplate('#card-basket'),
+      events
+    );
 
-    productsModel.setItems(serverProducts);
-    console.log(productsModel.getItems());
+    return card.render({
+      ...item,
+      index: index + 1
+    });
+  });
 
-  } catch (error) {
-    console.error('Ошибка при получении товаров:', error);
+  basketView.render({
+    items: cards,
+    total: basketModel.getTotalPrice(),
+    buttonDisabled: items.length === 0
+  });
+});
+
+events.on('buyer:changed', () => {
+  const orderErrors = buyerModel.validate(['payment', 'address']);
+  orderForm.valid = Object.keys(orderErrors).length === 0;
+  orderForm.errors = Object.values(orderErrors).join(', ');
+
+  const contactsErrors = buyerModel.validate(['email', 'phone']);
+  contactsForm.valid = Object.keys(contactsErrors).length === 0;
+  contactsForm.errors = Object.values(contactsErrors).join(', ');
+});
+
+events.on('card:select', ({ id }: { id: string }) => {
+  const item = productsModel.getItem(id);
+  if (item) {
+    productsModel.setPreview(item);
   }
-})();
+});
+
+events.on('card:toBasket', ({ id }: { id: string }) => {
+  const item = productsModel.getItem(id);
+  if (item) {
+    basketModel.addItem(item);
+    modal.close();
+  }
+});
+
+events.on('card:removeFromBasket', ({ id }: { id: string }) => {
+  const item = productsModel.getItem(id);
+  if (item) {
+    basketModel.removeItem(item);
+    modal.close();
+  }
+});
+
+events.on('basket:remove', ({ id }: { id: string }) => {
+  const item = productsModel.getItem(id);
+  if (item) {
+    basketModel.removeItem(item);
+  }
+});
+
+events.on('basket:open', () => {
+  modal.render({
+    content: basketView.render()
+  });
+});
+
+events.on('order:open', () => {
+  orderForm.errors = ''; 
+  modal.render({ content: orderForm.render() });
+});
+
+events.on(/order\..*:change/, (data: { field: string; value: string }) => {
+  const { field, value } = data;
+  buyerModel.setData({ [field]: value } as any);
+});
+
+events.on(/contacts\..*:change/, (data: { field: string; value: string }) => {
+  const { field, value } = data;
+  buyerModel.setData({ [field]: value } as any);
+});
+
+events.on('order:submit', () => {
+  const errors = buyerModel.validate(['payment', 'address']);
+
+  if (Object.keys(errors).length === 0) {
+    modal.render({
+      content: contactsForm.render()
+    });
+  } else {
+    orderForm.errors = Object.values(errors).join(', ');
+  }
+});
+
+events.on('contacts:submit', async () => {
+  const errors = buyerModel.validate(['email', 'phone']);
+  if (Object.keys(errors).length > 0) {
+    contactsForm.errors = Object.values(errors).join(', ');
+    return;
+  }
+
+  const order: IOrderRequest = {
+    ...buyerModel.getData(),
+    items: basketModel.getItems().map(i => i.id),
+    total: basketModel.getTotalPrice()
+  };
+
+  try {
+    const response = await weblarekApi.createOrder(order);
+
+    const success = new Success(
+      cloneTemplate('#success'),
+      events
+    );
+
+    modal.render({
+      content: success.render({
+        total: response.total
+      })
+    });
+
+    basketModel.clear();
+    buyerModel.clear();
+
+  } catch (err) {
+    contactsForm.errors = String(err);
+  }
+});
+
+events.on('success:close', () => {
+  modal.close();
+});
+
+weblarekApi.getProducts()
+  .then((products) => {
+    productsModel.setItems(products);
+  })
+  .catch(console.error);

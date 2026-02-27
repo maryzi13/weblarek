@@ -1,3 +1,5 @@
+import { WebLarekApi } from "../components/services/WebLarekApi";
+
 export type ApiPostMethods = 'POST' | 'PUT' | 'DELETE';
 
 export interface IApi {
