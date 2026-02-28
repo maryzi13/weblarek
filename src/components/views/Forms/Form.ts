@@ -1,41 +1,49 @@
 import { Component } from '../../base/Component';
-import { IEvents } from '../../base/Events';
 import { ensureElement } from '../../../utils/utils';
 
+export interface IFormActions<T> {
+  onSubmit?: () => void;
+  onChange?: (field: keyof T, value: string) => void;
+}
+
 export abstract class Form<T> extends Component<Partial<T>> {
-    protected submitButton: HTMLButtonElement;
-    protected errorsElement: HTMLElement;
+  protected submitButton: HTMLButtonElement;
+  protected errorsElement: HTMLElement;
 
-    constructor(protected container: HTMLFormElement, protected events: IEvents) {
-        super(container);
-        this.submitButton = ensureElement<HTMLButtonElement>('button[type=submit]', container);
-        this.errorsElement = ensureElement<HTMLElement>('.form__errors', container);
+  constructor(
+    protected container: HTMLFormElement,
+    actions?: IFormActions<T>
+  ) {
+    super(container);
 
-        container.addEventListener('input', (e: Event) => {
-            const target = e.target as HTMLInputElement;
-            const field = target.name as keyof T;
-            const value = target.value;
-            this.onInputChange(field, value);
-        });
+    this.submitButton = ensureElement<HTMLButtonElement>(
+      'button[type=submit]',
+      container
+    );
 
-        container.addEventListener('submit', (e: Event) => {
-            e.preventDefault();
-            this.events.emit(`${container.name}:submit`);
-        });
-    }
+    this.errorsElement = ensureElement<HTMLElement>(
+      '.form__errors',
+      container
+    );
 
-    protected onInputChange<K extends keyof T>(field: K, value: string) {
-        this.events.emit(`${this.container.name}.${String(field)}:change`, {
-            field,
-            value,
-        } as { field: K; value: string });
-    }
+    container.addEventListener('input', (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const field = target.name as keyof T;
+      const value = target.value;
+      actions?.onChange?.(field, value);
+    });
 
-    set valid(value: boolean) {
-        this.submitButton.disabled = !value;
-    }
+    container.addEventListener('submit', (e: Event) => {
+      e.preventDefault();
+      actions?.onSubmit?.();
+    });
+  }
 
-    set errors(value: string) {
-        this.errorsElement.textContent = value;
-    }
+  set valid(value: boolean) {
+    this.submitButton.disabled = !value;
+  }
+
+  set errors(value: string) {
+    this.errorsElement.textContent = value;
+  }
 }

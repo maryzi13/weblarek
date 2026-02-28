@@ -2,6 +2,7 @@ import './scss/styles.scss';
 
 import { API_URL, CDN_URL } from './utils/constants';
 import { cloneTemplate } from './utils/utils';
+import { ensureElement } from './utils/utils';
 
 import { EventEmitter } from './components/base/Events';
 import { Api } from './components/base/Api';
@@ -12,7 +13,7 @@ import { Products } from './components/models/products';
 import { Basket as BasketModel } from './components/models/basket';
 import { Buyer } from './components/models/buyer';
 
-import { Gallery } from './components/views/Card/Gallery';
+import { Gallery } from './components/views/Gallery';
 import { CatalogCard } from './components/views/Card/CardCatalog';
 import { PreviewCard } from './components/views/Card/PreviewCard';
 import { BasketCard } from './components/views/Card/BasketCard';
@@ -25,6 +26,7 @@ import { ContactsForm } from './components/views/Forms/ContactsForm';
 import { Success } from './components/views/Success';
 
 import { IProduct, IOrderRequest } from './types';
+import { IBuyer } from './types';
 
 const events = new EventEmitter();
 
@@ -37,30 +39,20 @@ const buyerModel = new Buyer(events);
 
 const header = new Header(
   events,
-  document.querySelector('.header') as HTMLElement
+  ensureElement<HTMLElement>('.header')
 );
 
 const gallery = new Gallery(
-  document.querySelector('.page') as HTMLElement
+  ensureElement<HTMLElement>('.page')
 );
 
 const modal = new Modal(
-  document.getElementById('modal-container') as HTMLElement,
+  ensureElement<HTMLElement>('#modal-container'),
   events
 );
 
 const basketView = new Basket(
   cloneTemplate('#basket'),
-  events
-);
-
-const orderForm = new OrderForm(
-  cloneTemplate('#order') as HTMLFormElement,
-  events
-);
-
-const contactsForm = new ContactsForm(
-  cloneTemplate('#contacts') as HTMLFormElement,
   events
 );
 
@@ -70,7 +62,12 @@ events.on('products:changed', () => {
   const cards = items.map((item) => {
     const card = new CatalogCard(
       cloneTemplate('#card-catalog'),
-      events
+      {
+        onClick: () => {
+          const full = productsModel.getItem(item.id);
+          if (full) productsModel.setPreview(full);
+        }
+      }
     );
 
     return card.render({
@@ -83,16 +80,28 @@ events.on('products:changed', () => {
 });
 
 events.on('preview:changed', (item: IProduct) => {
-  const card = new PreviewCard(
+  const preview = new PreviewCard(
     cloneTemplate('#card-preview'),
-    events
+    {
+      onButtonClick: () => {
+        if (basketModel.hasItem(item.id)) {
+          basketModel.removeItem(item);
+        } else {
+          basketModel.addItem(item);
+        }
+        modal.close();
+      }
+    }
   );
 
   modal.render({
-    content: card.render({
+    content: preview.render({
       ...item,
       image: CDN_URL + item.image,
-      inBasket: basketModel.hasItem(item.id)
+      buttonText: basketModel.hasItem(item.id)
+        ? 'Удалить из корзины'
+        : 'В корзину',
+      buttonDisabled: item.price === null
     })
   });
 });
@@ -107,7 +116,9 @@ events.on('basket:changed', () => {
   const cards = items.map((item, index) => {
     const card = new BasketCard(
       cloneTemplate('#card-basket'),
-      events
+      {
+        onDelete: () => basketModel.removeItem(item)
+      }
     );
 
     return card.render({
@@ -123,46 +134,6 @@ events.on('basket:changed', () => {
   });
 });
 
-events.on('buyer:changed', () => {
-  const orderErrors = buyerModel.validate(['payment', 'address']);
-  orderForm.valid = Object.keys(orderErrors).length === 0;
-  orderForm.errors = Object.values(orderErrors).join(', ');
-
-  const contactsErrors = buyerModel.validate(['email', 'phone']);
-  contactsForm.valid = Object.keys(contactsErrors).length === 0;
-  contactsForm.errors = Object.values(contactsErrors).join(', ');
-});
-
-events.on('card:select', ({ id }: { id: string }) => {
-  const item = productsModel.getItem(id);
-  if (item) {
-    productsModel.setPreview(item);
-  }
-});
-
-events.on('card:toBasket', ({ id }: { id: string }) => {
-  const item = productsModel.getItem(id);
-  if (item) {
-    basketModel.addItem(item);
-    modal.close();
-  }
-});
-
-events.on('card:removeFromBasket', ({ id }: { id: string }) => {
-  const item = productsModel.getItem(id);
-  if (item) {
-    basketModel.removeItem(item);
-    modal.close();
-  }
-});
-
-events.on('basket:remove', ({ id }: { id: string }) => {
-  const item = productsModel.getItem(id);
-  if (item) {
-    basketModel.removeItem(item);
-  }
-});
-
 events.on('basket:open', () => {
   modal.render({
     content: basketView.render()
@@ -170,65 +141,95 @@ events.on('basket:open', () => {
 });
 
 events.on('order:open', () => {
-  orderForm.errors = ''; 
-  modal.render({ content: orderForm.render() });
-});
-
-events.on(/order\..*:change/, (data: { field: string; value: string }) => {
-  const { field, value } = data;
-  buyerModel.setData({ [field]: value } as any);
-});
-
-events.on(/contacts\..*:change/, (data: { field: string; value: string }) => {
-  const { field, value } = data;
-  buyerModel.setData({ [field]: value } as any);
-});
-
-events.on('order:submit', () => {
-  const errors = buyerModel.validate(['payment', 'address']);
-
-  if (Object.keys(errors).length === 0) {
-    modal.render({
-      content: contactsForm.render()
-    });
-  } else {
-    orderForm.errors = Object.values(errors).join(', ');
-  }
-});
-
-events.on('contacts:submit', async () => {
-  const errors = buyerModel.validate(['email', 'phone']);
-  if (Object.keys(errors).length > 0) {
-    contactsForm.errors = Object.values(errors).join(', ');
+  if (basketModel.getItems().length === 0) {
     return;
   }
 
-  const order: IOrderRequest = {
-    ...buyerModel.getData(),
-    items: basketModel.getItems().map(i => i.id),
-    total: basketModel.getTotalPrice()
-  };
+  const orderForm = new OrderForm(
+  cloneTemplate('#order'),
+  {
+    onChange: (field: keyof IBuyer, value: string) => {
+      buyerModel.setData({ [field]: value });
 
-  try {
-    const response = await weblarekApi.createOrder(order);
+        const errors = buyerModel.validate(['payment', 'address']);
 
-    const success = new Success(
-      cloneTemplate('#success'),
-      events
-    );
+        orderForm.valid = Object.keys(errors).length === 0;
+        orderForm.errors = errors.address || errors.payment || '';
+      },
+      onSubmit: () => {
+        events.emit('order:submit');
+      }
+    }
+  );
 
-    modal.render({
-      content: success.render({
-        total: response.total
-      })
-    });
+  modal.render({
+    content: orderForm.render({
+      ...buyerModel.getData()
+    })
+  });
 
-    basketModel.clear();
-    buyerModel.clear();
+  const errors = buyerModel.validate(['payment', 'address']);
+  orderForm.valid = Object.keys(errors).length === 0;
+  orderForm.errors = errors.address || errors.payment || '';
+});
 
-  } catch (err) {
-    contactsForm.errors = String(err);
-  }
+events.on('order:submit', () => {
+  const contactsForm = new ContactsForm(
+    cloneTemplate('#contacts'),
+    {
+      onChange: (field: keyof IBuyer, value: string) => {
+        buyerModel.setData({ [field]: value });
+
+        const errors = buyerModel.validate(['email', 'phone']);
+        contactsForm.valid = Object.keys(errors).length === 0;
+        contactsForm.errors = Object.values(errors).join(', ');
+      },
+      onSubmit: async () => {
+        const errors = buyerModel.validate(['email', 'phone']);
+        if (Object.keys(errors).length > 0) {
+          contactsForm.errors = Object.values(errors).join(', ');
+          return;
+        }
+
+        const order: IOrderRequest = {
+          ...buyerModel.getData(),
+          items: basketModel.getItems().map(i => i.id),
+          total: basketModel.getTotalPrice()
+        };
+
+        try {
+          const response = await weblarekApi.createOrder(order);
+
+          const success = new Success(
+            cloneTemplate('#success'),
+            events
+          );
+
+          modal.render({
+            content: success.render({
+              total: response.total
+            })
+          });
+
+          basketModel.clear();
+          buyerModel.clear();
+
+        } catch (err) {
+          contactsForm.errors = String(err);
+        }
+      }
+    }
+  );
+
+  modal.render({
+    content: contactsForm.render({
+      ...buyerModel.getData()
+    })
+  });
+
+  const errors = buyerModel.validate(['email', 'phone']);
+  contactsForm.valid = Object.keys(errors).length === 0;
+  contactsForm.errors = Object.values(errors).join(', ');
 });
 
 events.on('success:close', () => {
@@ -238,5 +239,7 @@ events.on('success:close', () => {
 weblarekApi.getProducts()
   .then((products) => {
     productsModel.setItems(products);
+    events.emit('basket:changed');
   })
   .catch(console.error);
+
