@@ -1,4 +1,5 @@
 import { Card } from './Card'; 
+import { IEvents } from '../../base/Events';
 import { IProduct } from '../../../types'; 
 import { categoryMap } from '../../../utils/constants'; 
 import { ensureElement } from '../../../utils/utils'; 
@@ -8,17 +9,13 @@ interface IPreviewData extends IProduct {
   buttonDisabled: boolean;
 }
 
-interface IPreviewCardActions {
-  onButtonClick?: () => void;
-}
-
 export class PreviewCard extends Card<IPreviewData> {
   protected categoryElement: HTMLElement;
   protected imageElement: HTMLImageElement;
   protected descriptionElement: HTMLElement;
   protected buttonElement: HTMLButtonElement;
 
-  constructor(container: HTMLElement, actions?: IPreviewCardActions) {
+  constructor(container: HTMLElement,  protected events: IEvents) {
     super(container);
 
     this.categoryElement = ensureElement<HTMLElement>(
@@ -41,9 +38,9 @@ export class PreviewCard extends Card<IPreviewData> {
       container
     );
 
-    if (actions?.onButtonClick) {
-      this.buttonElement.addEventListener('click', actions.onButtonClick);
-    }
+    this.buttonElement.addEventListener('click', () => {
+      this.events.emit('card:toggleBasket');
+    });
   }
 
   set category(value: string) {

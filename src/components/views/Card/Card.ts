@@ -19,5 +19,5 @@ export abstract class Card<T = IProduct> extends Component<T> {
   set price(value: number | null) { 
     this.priceElement.textContent = 
       value === null ? 'Бесценно' : `${value} синапсов`; 
-  } 
+  }
 }

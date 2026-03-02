@@ -1,16 +1,20 @@
 import { Card } from './Card'; 
 import { categoryMap } from '../../../utils/constants'; 
 import { ensureElement } from '../../../utils/utils'; 
+import { IProduct } from '../../../types';
  
-interface ICatalogCardActions {
+interface ICardActions {
   onClick?: () => void;
 }
 
-export class CatalogCard extends Card {
+type CategoryKey = keyof typeof categoryMap;
+export type TCardCatalog = Pick<IProduct, 'image' | 'category'>;
+
+export class CardCatalog extends Card<TCardCatalog> {
   protected categoryElement: HTMLElement;
   protected imageElement: HTMLImageElement;
 
-  constructor(container: HTMLElement, actions?: ICatalogCardActions) {
+  constructor(container: HTMLElement, actions?: ICardActions) {
     super(container);
 
     this.categoryElement = ensureElement<HTMLElement>(
@@ -30,8 +34,13 @@ export class CatalogCard extends Card {
 
   set category(value: string) {
     this.categoryElement.textContent = value;
-    const modifier = categoryMap[value as keyof typeof categoryMap] || '';
-    this.categoryElement.className = `card__category ${modifier}`;
+
+    for (const key in categoryMap) {
+      this.categoryElement.classList.toggle(
+        categoryMap[key as CategoryKey],
+        key === value
+      );
+    }
   }
 
   set image(value: string) {

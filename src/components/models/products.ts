@@ -22,7 +22,7 @@ export class Products {
 
   setPreview(item: IProduct): void {
     this.preview = item;
-    this.events.emit('preview:changed', this.preview);
+    this.events.emit('preview:changed');
   }
 
   getPreview(): IProduct | null {

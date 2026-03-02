@@ -14,7 +14,7 @@ import { Basket as BasketModel } from './components/models/basket';
 import { Buyer } from './components/models/buyer';
 
 import { Gallery } from './components/views/Gallery';
-import { CatalogCard } from './components/views/Card/CardCatalog';
+import { CardCatalog } from './components/views/Card/CardCatalog';
 import { PreviewCard } from './components/views/Card/PreviewCard';
 import { BasketCard } from './components/views/Card/BasketCard';
 
@@ -25,8 +25,7 @@ import { OrderForm } from './components/views/Forms/OrderForm';
 import { ContactsForm } from './components/views/Forms/ContactsForm';
 import { Success } from './components/views/Success';
 
-import { IProduct, IOrderRequest } from './types';
-import { IBuyer } from './types';
+import { IOrderRequest, IBuyer, TPayment} from './types';
 
 const events = new EventEmitter();
 
@@ -56,19 +55,16 @@ const basketView = new Basket(
   events
 );
 
-events.on('products:changed', () => {
-  const items = productsModel.getItems();
+const previewCard = new PreviewCard(cloneTemplate('#card-preview'), events);
+const orderForm = new OrderForm(cloneTemplate('#order'), events);
+const contactsForm = new ContactsForm(cloneTemplate('#contacts'), events);
+const success = new Success(cloneTemplate('#success'), events)
 
-  const cards = items.map((item) => {
-    const card = new CatalogCard(
-      cloneTemplate('#card-catalog'),
-      {
-        onClick: () => {
-          const full = productsModel.getItem(item.id);
-          if (full) productsModel.setPreview(full);
-        }
-      }
-    );
+events.on('products:changed', () => {
+  const itemCards = productsModel.getItems().map((item) => {
+  const card = new CardCatalog(cloneTemplate('#card-catalog'), {
+      onClick: () => events.emit('card:select', item),
+    });
 
     return card.render({
       ...item,
@@ -76,32 +72,28 @@ events.on('products:changed', () => {
     });
   });
 
-  gallery.render({ catalog: cards });
+  gallery.render({ catalog: itemCards });
 });
 
-events.on('preview:changed', (item: IProduct) => {
-  const preview = new PreviewCard(
-    cloneTemplate('#card-preview'),
-    {
-      onButtonClick: () => {
-        if (basketModel.hasItem(item.id)) {
-          basketModel.removeItem(item);
-        } else {
-          basketModel.addItem(item);
-        }
-        modal.close();
-      }
-    }
-  );
+events.on('preview:changed', () => {
+  const item = productsModel.getPreview();
+
+  if (!item) {
+    return;
+  }
+
+  const isUnavailable = item.price === null;
 
   modal.render({
-    content: preview.render({
+    content: previewCard.render({
       ...item,
       image: CDN_URL + item.image,
-      buttonText: basketModel.hasItem(item.id)
-        ? 'Удалить из корзины'
-        : 'В корзину',
-      buttonDisabled: item.price === null
+      buttonText: isUnavailable
+        ? 'Недоступно'
+        : basketModel.hasItem(item.id)
+          ? 'Удалить из корзины'
+          : 'В корзину',
+      buttonDisabled: isUnavailable
     })
   });
 });
@@ -114,12 +106,7 @@ events.on('basket:changed', () => {
   });
 
   const cards = items.map((item, index) => {
-    const card = new BasketCard(
-      cloneTemplate('#card-basket'),
-      {
-        onDelete: () => basketModel.removeItem(item)
-      }
-    );
+    const card = new BasketCard(cloneTemplate('#card-basket'), events);
 
     return card.render({
       ...item,
@@ -134,6 +121,49 @@ events.on('basket:changed', () => {
   });
 });
 
+events.on('buyer:changed', (buyerData: IBuyer) => {
+  orderForm.payment = buyerData.payment;
+  orderForm.address = buyerData.address;
+
+  const orderErrors = buyerModel.validate(['payment', 'address']);
+  orderForm.valid = Object.keys(orderErrors).length === 0;
+  orderForm.errors = Object.values(orderErrors).join(', ');
+
+  contactsForm.email = buyerData.email;
+  contactsForm.phone = buyerData.phone;
+
+  const contactsErrors = buyerModel.validate(['email', 'phone']);
+  contactsForm.valid = Object.keys(contactsErrors).length === 0;
+  contactsForm.errors = Object.values(contactsErrors).join(', ');
+});
+
+events.on('card:select', ({ id }: { id: string }) => {
+  const item = productsModel.getItem(id); 
+  if (item) { 
+    productsModel.setPreview(item); 
+  } 
+});
+
+events.on('card:toggleBasket', () => {
+  const item = productsModel.getPreview();
+  if (!item) return;
+
+  if (basketModel.hasItem(item.id)) {
+    basketModel.removeItem(item);
+  } else {
+    basketModel.addItem(item);
+  }
+
+  modal.close();
+});
+
+events.on('basket:remove', ({ id }: { id: string }) => { 
+  const item = productsModel.getItem(id);
+  if (item) { 
+    basketModel.removeItem(item); 
+  } 
+}); 
+
 events.on('basket:open', () => {
   modal.render({
     content: basketView.render()
@@ -141,95 +171,54 @@ events.on('basket:open', () => {
 });
 
 events.on('order:open', () => {
-  if (basketModel.getItems().length === 0) {
-    return;
-  }
-
-  const orderForm = new OrderForm(
-  cloneTemplate('#order'),
-  {
-    onChange: (field: keyof IBuyer, value: string) => {
-      buyerModel.setData({ [field]: value });
-
-        const errors = buyerModel.validate(['payment', 'address']);
-
-        orderForm.valid = Object.keys(errors).length === 0;
-        orderForm.errors = errors.address || errors.payment || '';
-      },
-      onSubmit: () => {
-        events.emit('order:submit');
-      }
-    }
-  );
-
   modal.render({
     content: orderForm.render({
       ...buyerModel.getData()
     })
   });
-
-  const errors = buyerModel.validate(['payment', 'address']);
-  orderForm.valid = Object.keys(errors).length === 0;
-  orderForm.errors = errors.address || errors.payment || '';
 });
 
+events.on(/order\..*:change/, (data: { field: string; value: string }) => { 
+  const { field, value } = data; 
+  buyerModel.setData({ [field]: value } as any); 
+}); 
+ 
+events.on(/contacts\..*:change/, (data: { field: string; value: string }) => { 
+  const { field, value } = data; 
+  buyerModel.setData({ [field]: value } as any); 
+}); 
+
 events.on('order:submit', () => {
-  const contactsForm = new ContactsForm(
-    cloneTemplate('#contacts'),
-    {
-      onChange: (field: keyof IBuyer, value: string) => {
-        buyerModel.setData({ [field]: value });
-
-        const errors = buyerModel.validate(['email', 'phone']);
-        contactsForm.valid = Object.keys(errors).length === 0;
-        contactsForm.errors = Object.values(errors).join(', ');
-      },
-      onSubmit: async () => {
-        const errors = buyerModel.validate(['email', 'phone']);
-        if (Object.keys(errors).length > 0) {
-          contactsForm.errors = Object.values(errors).join(', ');
-          return;
-        }
-
-        const order: IOrderRequest = {
-          ...buyerModel.getData(),
-          items: basketModel.getItems().map(i => i.id),
-          total: basketModel.getTotalPrice()
-        };
-
-        try {
-          const response = await weblarekApi.createOrder(order);
-
-          const success = new Success(
-            cloneTemplate('#success'),
-            events
-          );
-
-          modal.render({
-            content: success.render({
-              total: response.total
-            })
-          });
-
-          basketModel.clear();
-          buyerModel.clear();
-
-        } catch (err) {
-          contactsForm.errors = String(err);
-        }
-      }
-    }
-  );
-
   modal.render({
     content: contactsForm.render({
       ...buyerModel.getData()
     })
   });
+});
 
-  const errors = buyerModel.validate(['email', 'phone']);
-  contactsForm.valid = Object.keys(errors).length === 0;
-  contactsForm.errors = Object.values(errors).join(', ');
+events.on('contacts:submit', async () => {
+  
+  const order: IOrderRequest = {
+    ...buyerModel.getData(),
+    items: basketModel.getItems().map(i => i.id),
+    total: basketModel.getTotalPrice()
+  };
+
+  try {
+    const response = await weblarekApi.createOrder(order);
+
+    modal.render({
+      content: success.render({
+        total: response.total
+      })
+    });
+
+    basketModel.clear();
+    buyerModel.clear();
+
+  } catch (err) {
+    contactsForm.errors = String(err);
+  }
 });
 
 events.on('success:close', () => {
@@ -239,6 +228,7 @@ events.on('success:close', () => {
 weblarekApi.getProducts()
   .then((products) => {
     productsModel.setItems(products);
+    events.emit('products:changed');
     events.emit('basket:changed');
   })
   .catch(console.error);
